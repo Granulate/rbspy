@@ -459,8 +459,13 @@ macro_rules! get_ruby_string(
             source: &T
         ) -> Result<String, MemoryCopyError> where T: ProcessMemory {
             let vec = {
-                let rstring: RString = source.copy_struct(addr)
-                    .context(addr)?;
+                let rstring: RString = match source.copy_struct(addr).context(addr) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        debug!("Error reading rstring");
+                        return Err(e.into())
+                    }
+                };
                 let basic = rstring.basic;
                 let is_array = basic.flags & 1 << 13 == 0;
                 if is_array {
@@ -801,14 +806,26 @@ macro_rules! get_cfunc_name(
             raw_imemo: usize,
             source: &T
         ) -> Result<*const rb_method_entry_struct, MemoryCopyError> {
-            let imemo: rb_method_entry_struct = source.copy_struct(raw_imemo).context(raw_imemo)?;
+            let imemo: rb_method_entry_struct = match source.copy_struct(raw_imemo).context(raw_imemo) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading imemo");
+                    return Err(e.into())
+                }
+            };
 
             // These type constants are defined in ruby's internal/imemo.h
             #[allow(non_upper_case_globals)]
             match ((imemo.flags >> 12) & 0x07) as u32 {
                 imemo_type_imemo_ment => Ok(&imemo as *const rb_method_entry_struct),
                 imemo_type_imemo_svar => {
-                    let svar: vm_svar = source.copy_struct(raw_imemo).context(raw_imemo)?;
+                    let svar: vm_svar = match source.copy_struct(raw_imemo).context(raw_imemo) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            debug!("Error reading imemo svar");
+                            return Err(e.into())
+                        }
+                    };
                     check_method_entry(svar.cref_or_me, source)
                 },
                 _ => Ok(raw_imemo as *const rb_method_entry_struct)
@@ -826,7 +843,13 @@ macro_rules! get_cfunc_name(
 
             let mut ep = cfp.ep as *mut usize;
             let frame_flag: usize = unsafe {
-                source.copy_struct(ep.offset(0) as usize).context(ep.offset(0) as usize)?
+                match source.copy_struct(ep.offset(0) as usize).context(ep.offset(0) as usize) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        debug!("Error reading ep");
+                        return Err(e.into())
+                    }
+                }
             };
 
             // if VM_FRAME_TYPE($cfp->flag) != VM_FRAME_MAGIC_CFUNC
@@ -835,10 +858,22 @@ macro_rules! get_cfunc_name(
             }
 
             let mut env_specval: usize = unsafe {
-                source.copy_struct(ep.offset(-1) as usize).context(ep.offset(-1) as usize)?
+                match source.copy_struct(ep.offset(-1) as usize).context(ep.offset(-1) as usize) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        debug!("Error reading env_specval");
+                        return Err(e.into())
+                    }
+                }
             };
             let mut env_me_cref: usize = unsafe {
-                source.copy_struct(ep.offset(-2) as usize).context(ep.offset(-1) as usize)?
+                match source.copy_struct(ep.offset(-2) as usize).context(ep.offset(-1) as usize) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        debug!("Error reading env_me_cref");
+                        return Err(e.into())
+                    }
+                }
             };
 
             // #define VM_ENV_FLAG_LOCAL 0x02
@@ -848,12 +883,30 @@ macro_rules! get_cfunc_name(
                 }
                 unsafe {
                     ep = ep.offset(0) as *mut usize;
-                    env_specval = source.copy_struct(ep.offset(-1) as usize).context(ep.offset(-1) as usize)?;
-                    env_me_cref = source.copy_struct(ep.offset(-2) as usize).context(ep.offset(-2) as usize)?;
+                    env_specval = match source.copy_struct(ep.offset(-1) as usize).context(ep.offset(-1) as usize) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            debug!("Error reading env_specval 2");
+                            return Err(e.into())
+                        }
+                    };
+                    env_me_cref = match source.copy_struct(ep.offset(-2) as usize).context(ep.offset(-2) as usize) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            debug!("Error reading env_me_cref 2");
+                            return Err(e.into())
+                        }
+                    };
                 }
             }
 
-            let imemo: rb_method_entry_struct = source.copy_struct(env_me_cref).context(env_me_cref)?;
+            let imemo: rb_method_entry_struct = match source.copy_struct(env_me_cref).context(env_me_cref) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading env_me_cref 3");
+                    return Err(e.into())
+                }
+            };
             if imemo.def.is_null() {
                 return Err(format_err!("No method definition").into());
             }
@@ -876,8 +929,20 @@ macro_rules! get_cfunc_name(
                 dsymbol_fstr_hash: VALUE,
             }
 
-            let global_symbols: rb_symbols_t = source.copy_struct(global_symbols_address as usize).context(global_symbols_address as usize)?;
-            let def: rb_method_definition_struct = source.copy_struct(imemo.def as usize).context(imemo.def as usize)?;
+            let global_symbols: rb_symbols_t = match source.copy_struct(global_symbols_address as usize).context(global_symbols_address as usize) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading global_symbols");
+                    return Err(e.into())
+                }
+            };
+            let def: rb_method_definition_struct = match source.copy_struct(imemo.def as usize).context(imemo.def as usize) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading imemo.def");
+                    return Err(e.into())
+                }
+            };
             let method_id = def.original_id as usize;
 
             // rb_id_to_serial
@@ -893,7 +958,13 @@ macro_rules! get_cfunc_name(
             // ID_ENTRY_UNIT is defined in symbol.c, so not accessible by bindgen
             let id_entry_unit = 512;
             let idx = serial / id_entry_unit;
-            let ids: RArray = source.copy_struct(global_symbols.ids as usize).context(global_symbols.ids as usize)?;
+            let ids: RArray = match source.copy_struct(global_symbols.ids as usize).context(global_symbols.ids as usize) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading global_symbols.ids");
+                    return Err(e.into())
+                }
+            };
             let flags = ids.basic.flags as usize;
 
             // string2cstring
@@ -911,8 +982,20 @@ macro_rules! get_cfunc_name(
             // pointer, then copy the _pointer_ into our memory space, and then finally copy the
             // pointed-to array into our memory space
             let array_remote_ptr = (ids_ptr as usize) + (idx as usize) * std::mem::size_of::<usize>();
-            let array_ptr: usize = source.copy_struct(array_remote_ptr).context(array_remote_ptr)?;
-            let array: RArray = source.copy_struct(array_ptr).context(array_ptr)?;
+            let array_ptr: usize = match source.copy_struct(array_remote_ptr).context(array_remote_ptr) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading array_ptr");
+                    return Err(e.into())
+                }
+            };
+            let array: RArray = match source.copy_struct(array_ptr).context(array_ptr) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading array");
+                    return Err(e.into())
+                }
+            };
 
             let mut array_ptr = unsafe { array.as_.heap.ptr };
             let flags = array.basic.flags as usize;
@@ -922,7 +1005,13 @@ macro_rules! get_cfunc_name(
 
             let offset = (serial % 512) * 2;
             let rstring_remote_ptr = (array_ptr as usize) + offset * std::mem::size_of::<usize>();
-            let rstring_ptr: usize = source.copy_struct(rstring_remote_ptr as usize).context(rstring_remote_ptr as usize)?;
+            let rstring_ptr: usize = match source.copy_struct(rstring_remote_ptr as usize).context(rstring_remote_ptr as usize) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Error reading rstring_ptr");
+                    return Err(e.into())
+                }
+            };
 
             Ok(get_ruby_string(rstring_ptr as usize, source)?)
         }
